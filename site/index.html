@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Glitchfinder Explorer</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <header>
+        <h1>Glitchfinder Explorer</h1>
+        <p class="subtitle">Under-trained token detection for open-weight LLMs</p>
+    </header>
+
+    <main>
+        <section class="controls">
+            <div class="control-row">
+                <label for="model-select">Model:</label>
+                <select id="model-select">
+                    <option value="">-- Load a JSON file --</option>
+                </select>
+                <input type="file" id="file-input" accept=".json" />
+                <button id="load-btn">Load File</button>
+            </div>
+
+            <div class="control-row" id="compare-row" style="display:none;">
+                <label for="model-select-2">Compare with:</label>
+                <select id="model-select-2">
+                    <option value="">-- None --</option>
+                </select>
+                <button id="compare-btn">Compare</button>
+            </div>
+
+            <div class="control-row">
+                <label for="search-input">Search:</label>
+                <input type="text" id="search-input" placeholder="Filter by decoded string..." />
+
+                <label for="sort-select">Sort:</label>
+                <select id="sort-select">
+                    <option value="score-asc">Score (ascending)</option>
+                    <option value="score-desc">Score (descending)</option>
+                    <option value="id-asc">Token ID (ascending)</option>
+                    <option value="id-desc">Token ID (descending)</option>
+                </select>
+            </div>
+
+            <div class="control-row">
+                <label for="script-filter">Script:</label>
+                <select id="script-filter">
+                    <option value="">All scripts</option>
+                </select>
+
+                <label class="checkbox-label">
+                    <input type="checkbox" id="flag-special" /> Special
+                </label>
+                <label class="checkbox-label">
+                    <input type="checkbox" id="flag-unreachable" /> Unreachable
+                </label>
+                <label class="checkbox-label">
+                    <input type="checkbox" id="flag-partial" /> Partial UTF-8
+                </label>
+                <label class="checkbox-label">
+                    <input type="checkbox" id="flag-glitch" /> Verified Glitch Only
+                </label>
+            </div>
+        </section>
+
+        <section id="metadata" class="metadata" style="display:none;">
+            <h2>Model Info</h2>
+            <div id="metadata-content"></div>
+        </section>
+
+        <section id="script-chart" style="display:none;">
+            <h2>Tokens by Unicode Script</h2>
+            <div id="chart-container"></div>
+        </section>
+
+        <section id="results" style="display:none;">
+            <h2>Tokens <span id="result-count"></span></h2>
+            <table id="token-table">
+                <thead>
+                    <tr>
+                        <th>Rank</th>
+                        <th>ID</th>
+                        <th>Decoded</th>
+                        <th>Score</th>
+                        <th>Flags</th>
+                        <th>Scripts</th>
+                        <th>Verified</th>
+                    </tr>
+                </thead>
+                <tbody id="token-tbody"></tbody>
+            </table>
+            <div class="pagination">
+                <button id="prev-btn" disabled>Previous</button>
+                <span id="page-info"></span>
+                <button id="next-btn" disabled>Next</button>
+            </div>
+        </section>
+
+        <section id="comparison" style="display:none;">
+            <h2>Comparison: Tokens Flagged in Both Models</h2>
+            <table id="compare-table">
+                <thead>
+                    <tr>
+                        <th>Token ID</th>
+                        <th>Decoded</th>
+                        <th>Score (Model 1)</th>
+                        <th>Score (Model 2)</th>
+                    </tr>
+                </thead>
+                <tbody id="compare-tbody"></tbody>
+            </table>
+        </section>
+    </main>
+
+    <script src="app.js"></script>
+</body>
+</html>
