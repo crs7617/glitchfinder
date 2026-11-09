@@ -9,3 +9,4 @@
 | 4 | done | 5ec6ae3 | 9 passed | verify.py: size gating, 3 prompt templates, probability extraction |
 | 5 | done | bd7c027 | 12 passed | report.py + cli.py: JSON output, argparse, 5-step pipeline |
 | 6 | done | 1f85904 | no tests (static site) | HTML explorer: search, sort, filter, chart, comparison |
+| 7 | done | efeb966 | no tests (docs) | README, EXPLAIN.md, stage notes, PROGRESS |
