@@ -6,3 +6,5 @@ results/*.json
 dist/
 *.egg-info/
 .uv/
+.claude/
+scripts/test_site.py
