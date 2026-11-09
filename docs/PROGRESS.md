@@ -14,4 +14,9 @@
 | Step 2 | done | 21884a1 | 77 passed | Windows UTF-8 safety, --show-top flag, _safe_token_repr |
 | Step 3 | done | 44a5e83 | 77 passed | Real run on Qwen3-0.6B, bf16 fix, Qwen3 arch support |
 | Step 4 | done | 7a8a9f1 | 77 passed | Paper check: indicators match arXiv 2405.05417 exactly |
-| Step 5 | in progress | - | - | Verification on Qwen3-0.6B (19 candidates, ~20 min) |
+| Step 5 | done | aded21c | 77 passed | Verification: Qwen3-0.6B 19/19 glitches confirmed |
+| Step 6 | done | c55c227 | 77 passed | 5 models analyzed, GPT-2 tensor fix, batch script |
+| Step 7 | done | eb5c0b8 | 77 passed | Site data: 5 models, 1.75 MB total, index.json manifest |
+| Step 8 | done | 08fbb81 | 77 passed | Site rebuild: dark/light, search, filters, drawer, compare |
+| Step 9 | done | 28787f3 | 77 passed | Chart PNG: per-script flagged tokens by model |
+| Step 10 | done | (this) | 77 passed | README, Pages workflow, stage docs, final PROGRESS |
