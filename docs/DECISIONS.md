@@ -34,3 +34,39 @@
 - **Decision**: 5 ungated models with safetensors, diverse architectures:
   Qwen3-0.6B, Qwen2.5-0.5B, SmolLM2-360M, GPT-2, Phi-1.5.
   Gemma-2-2b excluded (gated). Only Qwen3-0.6B verified.
+
+## Site Redesign
+
+### Typography
+- **Display/headings**: Source Serif 4 (Adobe, OFL). Characterful editorial serif
+  with good readability at display sizes. Regular for body prose, Semibold Italic
+  for the title. Self-hosted woff2 subsets (~25 KB each).
+- **Mono (tokens/numbers)**: JetBrains Mono (JetBrains, OFL). Clear distinction
+  between similar glyphs (0/O, 1/l). Self-hosted woff2 (~65 KB).
+- **Fallback stacks**: `"Source Serif 4", "Charter", "Bitstream Charter", "Sitka Text", serif`
+  and `"JetBrains Mono", "Cascadia Code", "Fira Code", "Consolas", monospace`.
+- Rejected: Inter, Roboto, Arial, Space Grotesk (banned); system-ui stacks (banned).
+
+### Color
+- **Dark theme** (default): `#0c0c0e` ground (near-black, warm), `#e8e4df` text
+  (warm off-white). ONE accent: `#ff3b30` (signal red, used only for the most
+  suspicious tokens and verified glitches). Semantic: amber for special tokens,
+  muted coral for unreachable, green for verified.
+- **Light theme**: `#f5f3ef` ground (warm paper), `#1a1714` text. Same accent
+  scheme, adjusted for contrast.
+- All foreground text passes WCAG AA contrast (4.5:1+) against its background.
+- Rejected: purple gradients, glassmorphism, blue accent (too SaaS).
+
+### Layout philosophy
+- Left-aligned, no centered hero. Scientific instrument / editorial aesthetic.
+- The vocabulary map (canvas) is the centerpiece, not cards.
+- Sections are separated by space, not identical rounded cards.
+- Motion limited to one page-load reveal, hover states, and a subtle glitch
+  keyframe on hero specimen tokens. Respects prefers-reduced-motion.
+
+### Architecture
+- Vanilla JS with ES modules (import/export). No build step.
+- All paths relative (works under /<repo-name>/ on GitHub Pages).
+- Manifest loaded first, model JSON only on selection.
+- Canvas vocabulary map is devicePixelRatio-aware.
+- Explorer table is virtualized (renders only visible rows in a scrollable container).
