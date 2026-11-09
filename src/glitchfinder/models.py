@@ -49,6 +49,7 @@ _ARCH_TENSOR_MAP: dict[str, dict[str, Optional[str]]] = {
     "Gemma2ForCausalLM":  {"e_in": "model.embed_tokens.weight", "e_out": "lm_head.weight"},
     "PhiForCausalLM":     {"e_in": "model.embed_tokens.weight", "e_out": "lm_head.weight"},
     "Phi3ForCausalLM":    {"e_in": "model.embed_tokens.weight", "e_out": "lm_head.weight"},
+    "Qwen3ForCausalLM":   {"e_in": "model.embed_tokens.weight", "e_out": "lm_head.weight"},
     "GPT2LMHeadModel":    {"e_in": "transformer.wte.weight", "e_out": None},
     "GPTNeoXForCausalLM": {"e_in": "gpt_neox.embed_in.weight", "e_out": "embed_out.weight"},
 }
@@ -160,10 +161,15 @@ def _resolve_shard(
 def load_embedding_tensor(
     repo_id: str, tensor_name: str, cache_dir: Optional[str] = None
 ) -> np.ndarray:
-    """Load a single named tensor from safetensors as float32 numpy array."""
+    """Load a single named tensor from safetensors as float32 numpy array.
+
+    Uses torch framework for safe_open to handle bfloat16 tensors
+    (numpy doesn't support bf16), then converts to float32 numpy.
+    """
+    import torch
     shard_path = _resolve_shard(repo_id, tensor_name, cache_dir=cache_dir)
-    with safe_open(str(shard_path), framework="numpy") as f:
-        tensor = f.get_tensor(tensor_name).astype(np.float32)
+    with safe_open(str(shard_path), framework="pt") as f:
+        tensor = f.get_tensor(tensor_name).float().numpy()
     return tensor
 
 
@@ -240,8 +246,9 @@ def load_embeddings_from_dir(model_dir: str | Path) -> Embeddings:
         else:
             raise NoSafetensorsError(f"No safetensors in {model_dir}")
 
-    with safe_open(str(st_path), framework="numpy") as f:
-        e_in = f.get_tensor(e_in_name).astype(np.float32)
+    import torch
+    with safe_open(str(st_path), framework="pt") as f:
+        e_in = f.get_tensor(e_in_name).float().numpy()
 
     if e_in.shape[0] != info.vocab_size:
         use_size = min(info.vocab_size, e_in.shape[0])
@@ -250,8 +257,8 @@ def load_embeddings_from_dir(model_dir: str | Path) -> Embeddings:
 
     e_out = None
     if e_out_name is not None:
-        with safe_open(str(st_path), framework="numpy") as f:
-            e_out = f.get_tensor(e_out_name).astype(np.float32)
+        with safe_open(str(st_path), framework="pt") as f:
+            e_out = f.get_tensor(e_out_name).float().numpy()
         if e_out.shape[0] != info.vocab_size:
             e_out = e_out[:info.vocab_size]
 
