@@ -167,14 +167,17 @@ async function loadModel(file) {
   renderModelBar();
   populateScriptFilter();
   populateCompareSelect(file);
-  page = 0;
-  applyFilters();
-  drawMap();
-  renderChart();
 
+  // Show sections BEFORE drawing canvas (needs layout width)
   for (const id of ["model-bar", "map-section", "table-section", "chart-section", "compare-section"]) {
     $("#" + id).hidden = false;
   }
+
+  page = 0;
+  applyFilters();
+  // drawMap needs the canvas to have layout width, so use rAF
+  requestAnimationFrame(() => drawMap());
+  renderChart();
   updateHash();
 }
 
@@ -243,13 +246,15 @@ function drawMap() {
   const wrap = $("#map-wrap");
   const dpr = window.devicePixelRatio || 1;
 
-  // Compute grid dimensions
+  // Compute grid dimensions — aim for ~3:1 width-to-height
   const wrapWidth = wrap.clientWidth;
-  const cols = Math.ceil(Math.sqrt(vocabSize * (wrapWidth / 400)));
-  const cellSize = Math.max(1, Math.floor(wrapWidth / cols));
+  if (wrapWidth < 10) return; // not laid out yet
+  // Desired cell count per row: aim for many cols so the map is tall enough
+  const desiredCols = Math.floor(Math.sqrt(vocabSize * 3));
+  const cellSize = Math.max(2, Math.floor(wrapWidth / desiredCols)) || 2;
   const actualCols = Math.floor(wrapWidth / cellSize);
   const rows = Math.ceil(vocabSize / actualCols);
-  const height = rows * cellSize;
+  const height = Math.max(120, rows * cellSize);
 
   canvas.width = wrapWidth * dpr;
   canvas.height = height * dpr;
