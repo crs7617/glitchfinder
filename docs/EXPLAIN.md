@@ -111,6 +111,61 @@ The JSON report ranks tokens by suspiciousness. When reading results:
 - **Indicator heuristics, not guarantees.** L2 norm and cosine distance are strong signals but not perfect. A token with a low norm might be legitimate but rare. A token close to the garbage centroid might be there by coincidence.
 - **Three prompt templates.** A glitch token that happens to be predictable in a context we don't test would be missed. The 1% threshold is empirically reasonable but arbitrary.
 
+## Paper Correspondence
+
+This section quotes arXiv 2405.05417 (Land & Bartolo, 2024) and maps each claim
+to our implementation.
+
+### Indicator selection (Section 2.2)
+
+> "Thus, for models with tied embeddings, we use the cosine distance-based indicator
+> C(E_out, u_ref) to select candidate tokens. For models without tied embeddings,
+> we use the norm of E_in, denoted L2(E_in)."
+
+Our code (`cli.py` lines 79-91): tied models use `cosine_distance_indicator(emb.e_in, ref_ids)`.
+Since `e_in == e_out` for tied models, this is equivalent to the paper's `C(E_out, u_ref)`.
+Untied models use `l2_norm_indicator(emb.e_in)`, matching `L2(E_in)`.
+
+### Reference token selection (Section 2.2)
+
+> "we start by defining a set of known untrained or highly under-trained embedding
+> indices t_ref, e.g. the token IDs for tokens such as <unused_token123>, or the
+> space of embeddings above the tokenizer vocabulary size."
+
+Our code (`tokenizer_pass.py:find_reference_token_ids`): uses special+unreachable tokens,
+empty-decode tokens, and partial UTF-8 as fallback. This is a reasonable approximation
+of "known untrained" tokens, though the paper also mentions above-vocab-size indices
+(which we don't use, since we truncate to vocab_size).
+
+### Verification threshold (Section 2.3)
+
+> "we verify all tokens that rank among the most likely 2% according to the chosen
+> indicator, excluding partial UTF-8 sequences and unreachable tokens. This verification
+> process involves constructing specific repetitive prompts that induce a high output
+> probability for normal tokens, and checking if a particular candidate token has a
+> very low (< 1%) output probability."
+
+Our code: `select_verification_candidates` uses `top_fraction=0.02` (2%) and excludes
+special, unreachable, and partial UTF-8 tokens. `verify_token` classifies as glitch if
+`max_prob < 0.01` (1%). **Exact match.**
+
+### Weight decay rationale (Section 2.2)
+
+> "When embeddings are not tied, input embeddings for tokens which do not appear in
+> the input for a training step are only affected by a potential weight decay term.
+> If weight decay is applied to the input embedding matrix, the embeddings
+> corresponding to under-trained tokens will tend to zero as training progresses."
+
+This is why L2 norm works for untied models: weight decay pushes unused embeddings
+toward zero.
+
+> "untrained tokens will experience similar updates in training, 'moving away' from
+> the mean output vector of the model. Thus, we can expect to find that under-trained
+> token embeddings share a similar direction in output embedding space"
+
+This is why cosine distance from a reference centroid works for tied models: under-trained
+tokens cluster in a common "garbage direction."
+
 ## References
 
-- Rumbelow, J., & Watkins, M. (2024). "Fishing for Magikarp: Automatically Detecting Under-trained Tokens in Large Language Models." arXiv:2405.05417.
+- Land, S., & Bartolo, M. (2024). "Fishing for Magikarp: Automatically Detecting Under-trained Tokens in Large Language Models." arXiv:2405.05417.
