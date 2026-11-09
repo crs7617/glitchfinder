@@ -21,3 +21,16 @@
 ## Step 4: Paper Check
 - **Decision**: Will quote arXiv 2405.05417 Section 3 in docs/EXPLAIN.md and verify
   tied vs untied indicator selection matches.
+
+## Step 5: Verification Strategy
+- **Decision**: Verification takes ~50-70s per token on CPU. Verifying 2000 candidates
+  would take ~28 hours per model — infeasible. Instead:
+  - Qwen3-0.6B: verified all 19 non-flagged candidates (19/19 confirmed, ~20 min)
+  - Other models: indicators only (--no-verify), labeled "candidates, unverified"
+  - Rationale: the paper shows strong correlation between indicators and verification
+    (Figure 3), so indicator-only results are meaningful for ranking.
+
+## Step 6: Model Selection
+- **Decision**: 5 ungated models with safetensors, diverse architectures:
+  Qwen3-0.6B, Qwen2.5-0.5B, SmolLM2-360M, GPT-2, Phi-1.5.
+  Gemma-2-2b excluded (gated). Only Qwen3-0.6B verified.

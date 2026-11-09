@@ -165,12 +165,33 @@ def load_embedding_tensor(
 
     Uses torch framework for safe_open to handle bfloat16 tensors
     (numpy doesn't support bf16), then converts to float32 numpy.
+
+    If the exact tensor_name isn't found, tries stripping the model prefix
+    (e.g. "transformer.wte.weight" -> "wte.weight") since some safetensors
+    files omit the HF model class prefix.
     """
     import torch
     shard_path = _resolve_shard(repo_id, tensor_name, cache_dir=cache_dir)
     with safe_open(str(shard_path), framework="pt") as f:
-        tensor = f.get_tensor(tensor_name).float().numpy()
-    return tensor
+        keys = list(f.keys())
+        # Try exact name first
+        if tensor_name in keys:
+            return f.get_tensor(tensor_name).float().numpy()
+        # Try stripping prefix (e.g. "transformer.wte.weight" -> "wte.weight")
+        short_name = tensor_name.rsplit(".", 2)[-2] + "." + tensor_name.rsplit(".", 1)[-1] if "." in tensor_name else tensor_name
+        if short_name in keys:
+            logger.info("Tensor %s not found, using %s", tensor_name, short_name)
+            return f.get_tensor(short_name).float().numpy()
+        # Try scanning for any key containing the leaf name
+        leaf = tensor_name.split(".")[-2] + "." + tensor_name.split(".")[-1] if "." in tensor_name else tensor_name
+        for k in keys:
+            if k.endswith(leaf):
+                logger.info("Tensor %s not found, using %s", tensor_name, k)
+                return f.get_tensor(k).float().numpy()
+        raise KeyError(
+            f"Tensor {tensor_name} not found in {shard_path}. "
+            f"Available keys: {keys[:20]}"
+        )
 
 
 def load_embeddings(
