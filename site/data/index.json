@@ -1,0 +1,75 @@
+{
+  "models": [
+    {
+      "repo_id": "HuggingFaceTB/SmolLM2-360M",
+      "file": "HuggingFaceTB--SmolLM2-360M.json",
+      "vocab_size": 49152,
+      "architecture": "LlamaForCausalLM",
+      "tied": true,
+      "indicator": "cosine_distance",
+      "token_count": 2000,
+      "verified_glitches": 0,
+      "special": 16,
+      "unreachable": 102,
+      "partial": 0,
+      "file_size_kb": 340.8
+    },
+    {
+      "repo_id": "microsoft/phi-1_5",
+      "file": "microsoft--phi-1_5.json",
+      "vocab_size": 51200,
+      "architecture": "PhiForCausalLM",
+      "tied": false,
+      "indicator": "l2_norm",
+      "token_count": 2000,
+      "verified_glitches": 0,
+      "special": 0,
+      "unreachable": 967,
+      "partial": 0,
+      "file_size_kb": 290.6
+    },
+    {
+      "repo_id": "openai-community/gpt2",
+      "file": "openai-community--gpt2.json",
+      "vocab_size": 50257,
+      "architecture": "GPT2LMHeadModel",
+      "tied": true,
+      "indicator": "cosine_distance",
+      "token_count": 2000,
+      "verified_glitches": 0,
+      "special": 0,
+      "unreachable": 84,
+      "partial": 0,
+      "file_size_kb": 318.0
+    },
+    {
+      "repo_id": "Qwen/Qwen2.5-0.5B",
+      "file": "Qwen--Qwen2.5-0.5B.json",
+      "vocab_size": 151936,
+      "architecture": "Qwen2ForCausalLM",
+      "tied": true,
+      "indicator": "cosine_distance",
+      "token_count": 2000,
+      "verified_glitches": 0,
+      "special": 3,
+      "unreachable": 1887,
+      "partial": 0,
+      "file_size_kb": 411.7
+    },
+    {
+      "repo_id": "Qwen/Qwen3-0.6B",
+      "file": "Qwen--Qwen3-0.6B.json",
+      "vocab_size": 151936,
+      "architecture": "Qwen3ForCausalLM",
+      "tied": true,
+      "indicator": "cosine_distance",
+      "token_count": 2000,
+      "verified_glitches": 19,
+      "special": 10,
+      "unreachable": 1971,
+      "partial": 0,
+      "file_size_kb": 427.0
+    }
+  ],
+  "generated_by": "glitchfinder build_site_data.py"
+}
