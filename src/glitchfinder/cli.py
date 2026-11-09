@@ -22,7 +22,11 @@ def run_analysis(
 
     # Step 1: Load embeddings
     print(f"[1/5] Loading embeddings from {repo_id}...")
-    emb = models.load_embeddings(repo_id, cache_dir=cache_dir)
+    try:
+        emb = models.load_embeddings(repo_id, cache_dir=cache_dir)
+    except models.NoSafetensorsError as e:
+        print(f"  ERROR: {e}")
+        return
     info = emb.info
     print(f"  Vocab: {info.vocab_size}, Hidden: {info.hidden_size}, "
           f"Tied: {info.tie_word_embeddings}, Arch: {info.architecture}")

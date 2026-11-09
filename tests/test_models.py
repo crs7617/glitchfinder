@@ -12,6 +12,7 @@ from glitchfinder.models import (
     _tensor_name_map,
     _parse_config,
     ModelInfo,
+    NoSafetensorsError,
 )
 
 

@@ -14,6 +14,11 @@ from safetensors import safe_open
 
 logger = logging.getLogger(__name__)
 
+
+class NoSafetensorsError(Exception):
+    """Raised when a repo has no safetensors weights."""
+    pass
+
 # ── Dataclasses ──────────────────────────────────────────────────────────────
 
 @dataclass
@@ -88,7 +93,7 @@ def load_config(repo_id: str, cache_dir: Optional[str] = None) -> ModelInfo:
     config_path = hf_hub_download(
         repo_id, "config.json", cache_dir=cache_dir
     )
-    with open(config_path) as f:
+    with open(config_path, encoding="utf-8") as f:
         cfg = json.load(f)
 
     return _parse_config(repo_id, cfg)
@@ -118,15 +123,17 @@ def _resolve_shard(
 ) -> Path:
     """Find which safetensors shard contains the given tensor.
 
-    Tries the index file first (sharded models), then falls back to a
-    single model.safetensors.
+    Resolution order:
+    1. model.safetensors.index.json (sharded models) -- look up tensor in weight_map
+    2. model.safetensors (single-file models)
+    3. Raise NoSafetensorsError if neither exists (e.g. repo only has .bin weights)
     """
-    # Try sharded index
+    # Try sharded index first
     try:
         index_path = hf_hub_download(
             repo_id, "model.safetensors.index.json", cache_dir=cache_dir
         )
-        with open(index_path) as f:
+        with open(index_path, encoding="utf-8") as f:
             index = json.load(f)
         shard_file = index["weight_map"][tensor_name]
         shard_path = hf_hub_download(repo_id, shard_file, cache_dir=cache_dir)
@@ -134,9 +141,18 @@ def _resolve_shard(
     except Exception:
         pass
 
-    # Single file
-    path = hf_hub_download(repo_id, "model.safetensors", cache_dir=cache_dir)
-    return Path(path)
+    # Try single safetensors file
+    try:
+        path = hf_hub_download(repo_id, "model.safetensors", cache_dir=cache_dir)
+        return Path(path)
+    except Exception:
+        pass
+
+    raise NoSafetensorsError(
+        f"No safetensors weights found for {repo_id}. "
+        f"This repo may only have .bin weights, which are not supported. "
+        f"Glitchfinder requires safetensors format."
+    )
 
 
 # ── Tensor loading ───────────────────────────────────────────────────────────
@@ -184,6 +200,58 @@ def load_embeddings(
     e_out = None
     if e_out_name is not None:
         e_out = load_embedding_tensor(repo_id, e_out_name, cache_dir=cache_dir)
+        if e_out.shape[0] != info.vocab_size:
+            e_out = e_out[:info.vocab_size]
+
+    return Embeddings(info=info, e_in=e_in, e_out=e_out)
+
+
+# ── Local directory loading (for offline / test use) ─────────────────────
+
+def load_config_from_dir(model_dir: str | Path) -> ModelInfo:
+    """Load config.json from a local directory."""
+    config_path = Path(model_dir) / "config.json"
+    with open(config_path, encoding="utf-8") as f:
+        cfg = json.load(f)
+    return _parse_config(str(model_dir), cfg)
+
+
+def load_embeddings_from_dir(model_dir: str | Path) -> Embeddings:
+    """Load embeddings from a local directory containing safetensors + config.json.
+
+    Same logic as load_embeddings but reads from disk instead of HuggingFace Hub.
+    """
+    model_dir = Path(model_dir)
+    info = load_config_from_dir(model_dir)
+    names = _tensor_name_map(info.architecture, info.tie_word_embeddings)
+
+    e_in_name = names["e_in"]
+    e_out_name = names["e_out"]
+
+    # Find the safetensors file
+    st_path = model_dir / "model.safetensors"
+    if not st_path.exists():
+        index_path = model_dir / "model.safetensors.index.json"
+        if index_path.exists():
+            with open(index_path, encoding="utf-8") as f:
+                index = json.load(f)
+            shard_file = index["weight_map"][e_in_name]
+            st_path = model_dir / shard_file
+        else:
+            raise NoSafetensorsError(f"No safetensors in {model_dir}")
+
+    with safe_open(str(st_path), framework="numpy") as f:
+        e_in = f.get_tensor(e_in_name).astype(np.float32)
+
+    if e_in.shape[0] != info.vocab_size:
+        use_size = min(info.vocab_size, e_in.shape[0])
+        e_in = e_in[:use_size]
+        info.vocab_size = use_size
+
+    e_out = None
+    if e_out_name is not None:
+        with safe_open(str(st_path), framework="numpy") as f:
+            e_out = f.get_tensor(e_out_name).astype(np.float32)
         if e_out.shape[0] != info.vocab_size:
             e_out = e_out[:info.vocab_size]
 

@@ -95,5 +95,5 @@ class TestVerifyToken:
     def test_probability_extraction(self):
         """Mock model returning fixed logits → verify probability math."""
         # This would require mocking torch model forward pass
-        # Covered in integration tests with tiny-gpt2
+        # Covered in test_end_to_end.py with synthetic model
         pass
