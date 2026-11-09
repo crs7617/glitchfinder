@@ -1,0 +1,190 @@
+"""Embedding extraction from safetensors without loading full models."""
+
+from __future__ import annotations
+
+import json
+import logging
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Optional
+
+import numpy as np
+from huggingface_hub import hf_hub_download
+from safetensors import safe_open
+
+logger = logging.getLogger(__name__)
+
+# ── Dataclasses ──────────────────────────────────────────────────────────────
+
+@dataclass
+class ModelInfo:
+    repo_id: str
+    vocab_size: int
+    hidden_size: int
+    tie_word_embeddings: bool
+    architecture: str
+    num_parameters: Optional[int] = None
+
+
+@dataclass
+class Embeddings:
+    info: ModelInfo
+    e_in: np.ndarray
+    e_out: Optional[np.ndarray]  # None when tied
+
+
+# ── Tensor name mapping ─────────────────────────────────────────────────────
+
+# Maps architecture name → {"e_in": tensor_name, "e_out": tensor_name | None}
+_ARCH_TENSOR_MAP: dict[str, dict[str, Optional[str]]] = {
+    "LlamaForCausalLM":   {"e_in": "model.embed_tokens.weight", "e_out": "lm_head.weight"},
+    "MistralForCausalLM": {"e_in": "model.embed_tokens.weight", "e_out": "lm_head.weight"},
+    "Qwen2ForCausalLM":   {"e_in": "model.embed_tokens.weight", "e_out": "lm_head.weight"},
+    "GemmaForCausalLM":   {"e_in": "model.embed_tokens.weight", "e_out": "lm_head.weight"},
+    "Gemma2ForCausalLM":  {"e_in": "model.embed_tokens.weight", "e_out": "lm_head.weight"},
+    "PhiForCausalLM":     {"e_in": "model.embed_tokens.weight", "e_out": "lm_head.weight"},
+    "Phi3ForCausalLM":    {"e_in": "model.embed_tokens.weight", "e_out": "lm_head.weight"},
+    "GPT2LMHeadModel":    {"e_in": "transformer.wte.weight", "e_out": None},
+    "GPTNeoXForCausalLM": {"e_in": "gpt_neox.embed_in.weight", "e_out": "embed_out.weight"},
+}
+
+
+def _tensor_name_map(architecture: str, tied: bool) -> dict[str, Optional[str]]:
+    """Return tensor names for the given architecture.
+
+    If embeddings are tied, e_out is forced to None regardless of the
+    architecture's default mapping.
+    """
+    if architecture in _ARCH_TENSOR_MAP:
+        names = dict(_ARCH_TENSOR_MAP[architecture])
+    else:
+        # Fallback: common patterns for transformer models
+        names = {"e_in": "model.embed_tokens.weight", "e_out": "lm_head.weight"}
+        logger.warning(
+            "Unknown architecture %s; guessing tensor names %s", architecture, names
+        )
+    if tied:
+        names["e_out"] = None
+    return names
+
+
+def _scan_for_embed_tensor(keys: list[str], role: str) -> Optional[str]:
+    """Fallback: scan safetensors keys for likely embedding tensors."""
+    patterns = {
+        "e_in": ["embed_tokens", "wte", "embed_in", "word_embeddings"],
+        "e_out": ["lm_head", "embed_out", "output_embedding"],
+    }
+    for pattern in patterns.get(role, []):
+        for key in keys:
+            if pattern in key:
+                return key
+    return None
+
+
+# ── Config loading ───────────────────────────────────────────────────────────
+
+def load_config(repo_id: str, cache_dir: Optional[str] = None) -> ModelInfo:
+    """Download and parse config.json from a HuggingFace repo."""
+    config_path = hf_hub_download(
+        repo_id, "config.json", cache_dir=cache_dir
+    )
+    with open(config_path) as f:
+        cfg = json.load(f)
+
+    return _parse_config(repo_id, cfg)
+
+
+def _parse_config(repo_id: str, cfg: dict) -> ModelInfo:
+    """Parse a config dict into ModelInfo."""
+    arch = cfg.get("architectures", ["Unknown"])[0]
+    vocab_size = cfg["vocab_size"]
+    hidden_size = cfg.get("hidden_size", cfg.get("n_embd", cfg.get("d_model", 0)))
+    tied = cfg.get("tie_word_embeddings", True)  # default True per HF convention
+    num_params = cfg.get("num_parameters")
+    return ModelInfo(
+        repo_id=repo_id,
+        vocab_size=vocab_size,
+        hidden_size=hidden_size,
+        tie_word_embeddings=tied,
+        architecture=arch,
+        num_parameters=num_params,
+    )
+
+
+# ── Shard resolution ────────────────────────────────────────────────────────
+
+def _resolve_shard(
+    repo_id: str, tensor_name: str, cache_dir: Optional[str] = None
+) -> Path:
+    """Find which safetensors shard contains the given tensor.
+
+    Tries the index file first (sharded models), then falls back to a
+    single model.safetensors.
+    """
+    # Try sharded index
+    try:
+        index_path = hf_hub_download(
+            repo_id, "model.safetensors.index.json", cache_dir=cache_dir
+        )
+        with open(index_path) as f:
+            index = json.load(f)
+        shard_file = index["weight_map"][tensor_name]
+        shard_path = hf_hub_download(repo_id, shard_file, cache_dir=cache_dir)
+        return Path(shard_path)
+    except Exception:
+        pass
+
+    # Single file
+    path = hf_hub_download(repo_id, "model.safetensors", cache_dir=cache_dir)
+    return Path(path)
+
+
+# ── Tensor loading ───────────────────────────────────────────────────────────
+
+def load_embedding_tensor(
+    repo_id: str, tensor_name: str, cache_dir: Optional[str] = None
+) -> np.ndarray:
+    """Load a single named tensor from safetensors as float32 numpy array."""
+    shard_path = _resolve_shard(repo_id, tensor_name, cache_dir=cache_dir)
+    with safe_open(str(shard_path), framework="numpy") as f:
+        tensor = f.get_tensor(tensor_name).astype(np.float32)
+    return tensor
+
+
+def load_embeddings(
+    repo_id: str, cache_dir: Optional[str] = None
+) -> Embeddings:
+    """Load input (and optionally output) embedding matrices.
+
+    Only reads the embedding tensors via safetensors — never loads the
+    full model. This keeps memory usage minimal.
+    """
+    info = load_config(repo_id, cache_dir=cache_dir)
+    names = _tensor_name_map(info.architecture, info.tie_word_embeddings)
+
+    # If we don't know the tensor name, try to scan the safetensors keys
+    e_in_name = names["e_in"]
+    e_out_name = names["e_out"]
+
+    # Load input embeddings
+    e_in = load_embedding_tensor(repo_id, e_in_name, cache_dir=cache_dir)
+
+    # Validate vocab size vs tensor rows
+    if e_in.shape[0] != info.vocab_size:
+        actual = e_in.shape[0]
+        logger.warning(
+            "Vocab size mismatch: config says %d, tensor has %d rows. Using min.",
+            info.vocab_size, actual,
+        )
+        use_size = min(info.vocab_size, actual)
+        e_in = e_in[:use_size]
+        info.vocab_size = use_size
+
+    # Load output embeddings if untied
+    e_out = None
+    if e_out_name is not None:
+        e_out = load_embedding_tensor(repo_id, e_out_name, cache_dir=cache_dir)
+        if e_out.shape[0] != info.vocab_size:
+            e_out = e_out[:info.vocab_size]
+
+    return Embeddings(info=info, e_in=e_in, e_out=e_out)
