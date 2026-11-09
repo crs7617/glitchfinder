@@ -1,250 +1,374 @@
-// Glitchfinder Explorer — vanilla JS, no framework
+// Glitchfinder Explorer — vanilla JS, no dependencies
 (function () {
     "use strict";
 
-    const PAGE_SIZE = 100;
+    const PAGE_SIZE = 50;
+    const DATA_DIR = "data/";
+    let index = null;
     let currentData = null;
-    let filteredTokens = [];
-    let currentPage = 0;
-    let loadedModels = {}; // name → data
+    let filtered = [];
+    let page = 0;
+    let compareData = null;
 
     // DOM refs
-    const modelSelect = document.getElementById("model-select");
-    const modelSelect2 = document.getElementById("model-select-2");
-    const fileInput = document.getElementById("file-input");
-    const loadBtn = document.getElementById("load-btn");
-    const searchInput = document.getElementById("search-input");
-    const sortSelect = document.getElementById("sort-select");
-    const scriptFilter = document.getElementById("script-filter");
-    const flagSpecial = document.getElementById("flag-special");
-    const flagUnreachable = document.getElementById("flag-unreachable");
-    const flagPartial = document.getElementById("flag-partial");
-    const flagGlitch = document.getElementById("flag-glitch");
-    const metadataSection = document.getElementById("metadata");
-    const metadataContent = document.getElementById("metadata-content");
-    const scriptChart = document.getElementById("script-chart");
-    const chartContainer = document.getElementById("chart-container");
-    const resultsSection = document.getElementById("results");
-    const resultCount = document.getElementById("result-count");
-    const tbody = document.getElementById("token-tbody");
-    const prevBtn = document.getElementById("prev-btn");
-    const nextBtn = document.getElementById("next-btn");
-    const pageInfo = document.getElementById("page-info");
-    const compareRow = document.getElementById("compare-row");
-    const compareBtn = document.getElementById("compare-btn");
-    const comparisonSection = document.getElementById("comparison");
-    const compareTbody = document.getElementById("compare-tbody");
+    const $ = (s) => document.querySelector(s);
+    const modelSel = $("#model-select");
+    const searchIn = $("#search-input");
+    const sortSel = $("#sort-select");
+    const scriptFilt = $("#script-filter");
+    const fSpecial = $("#f-special");
+    const fUnreach = $("#f-unreachable");
+    const fVerified = $("#f-verified");
+    const tbody = $("#tbody");
+    const countBadge = $("#count-badge");
+    const pageInfo = $("#page-info");
+    const prevBtn = $("#prev-btn");
+    const nextBtn = $("#next-btn");
+    const drawer = $("#drawer");
+    const drawerContent = $("#drawer-content");
+    const drawerClose = $("#drawer-close");
+    const compareSel = $("#compare-select");
 
-    // Load JSON file
-    loadBtn.addEventListener("click", function () {
-        const file = fileInput.files[0];
-        if (!file) return;
-        const reader = new FileReader();
-        reader.onload = function (e) {
-            try {
-                const data = JSON.parse(e.target.result);
-                const name = data.metadata?.repo_id || file.name;
-                loadedModels[name] = data;
-                addModelOption(name);
-                modelSelect.value = name;
-                activateModel(data);
-            } catch (err) {
-                alert("Failed to parse JSON: " + err.message);
-            }
-        };
-        reader.readAsText(file);
-    });
-
-    modelSelect.addEventListener("change", function () {
-        const name = this.value;
-        if (name && loadedModels[name]) {
-            activateModel(loadedModels[name]);
+    // ── Init ──────────────────────────────────────────────────────
+    async function init() {
+        try {
+            const resp = await fetch(DATA_DIR + "index.json");
+            index = await resp.json();
+        } catch (e) {
+            console.error("Failed to load index.json", e);
+            return;
         }
-    });
 
-    function addModelOption(name) {
-        if ([...modelSelect.options].some(o => o.value === name)) return;
-        const opt = document.createElement("option");
-        opt.value = name;
-        opt.textContent = name;
-        modelSelect.appendChild(opt);
-
-        const opt2 = opt.cloneNode(true);
-        modelSelect2.appendChild(opt2);
-
-        if (Object.keys(loadedModels).length >= 2) {
-            compareRow.style.display = "flex";
-        }
-    }
-
-    function activateModel(data) {
-        currentData = data;
-        currentPage = 0;
-        showMetadata(data.metadata);
-        populateScriptFilter(data.script_stats);
-        showScriptChart(data.script_stats);
-        applyFilters();
-        metadataSection.style.display = "block";
-        scriptChart.style.display = "block";
-        resultsSection.style.display = "block";
-    }
-
-    function showMetadata(meta) {
-        metadataContent.innerHTML = [
-            `<div class="meta-item"><strong>Repo:</strong> ${esc(meta.repo_id)}</div>`,
-            `<div class="meta-item"><strong>Arch:</strong> ${esc(meta.architecture)}</div>`,
-            `<div class="meta-item"><strong>Vocab:</strong> ${meta.vocab_size.toLocaleString()}</div>`,
-            `<div class="meta-item"><strong>Hidden:</strong> ${meta.hidden_size}</div>`,
-            `<div class="meta-item"><strong>Tied:</strong> ${meta.tie_word_embeddings}</div>`,
-            `<div class="meta-item"><strong>Indicator:</strong> ${esc(meta.indicator)}</div>`,
-        ].join("");
-    }
-
-    function populateScriptFilter(stats) {
-        scriptFilter.innerHTML = '<option value="">All scripts</option>';
-        for (const name of Object.keys(stats).sort()) {
+        // Populate model selector
+        modelSel.innerHTML = '<option value="">-- Select model --</option>';
+        for (const m of index.models) {
             const opt = document.createElement("option");
-            opt.value = name;
-            opt.textContent = `${name} (${stats[name].total})`;
-            scriptFilter.appendChild(opt);
+            opt.value = m.file;
+            opt.textContent = m.repo_id + " (" + m.vocab_size.toLocaleString() + " vocab)";
+            modelSel.appendChild(opt);
+        }
+
+        // Read initial model from URL hash
+        const hash = location.hash.slice(1);
+        if (hash) {
+            const params = new URLSearchParams(hash);
+            const model = params.get("m");
+            if (model) {
+                modelSel.value = model;
+                await loadModel(model);
+                if (params.get("q")) { searchIn.value = params.get("q"); }
+                if (params.get("s")) { sortSel.value = params.get("s"); }
+                if (params.get("sc")) { scriptFilt.value = params.get("sc"); }
+                applyFilters();
+            }
+        }
+
+        // Events
+        modelSel.addEventListener("change", () => loadModel(modelSel.value));
+        searchIn.addEventListener("input", debounce(() => { page = 0; applyFilters(); }, 200));
+        sortSel.addEventListener("change", () => { page = 0; applyFilters(); });
+        scriptFilt.addEventListener("change", () => { page = 0; applyFilters(); });
+        fSpecial.addEventListener("change", () => { page = 0; applyFilters(); });
+        fUnreach.addEventListener("change", () => { page = 0; applyFilters(); });
+        fVerified.addEventListener("change", () => { page = 0; applyFilters(); });
+        prevBtn.addEventListener("click", () => { page--; render(); });
+        nextBtn.addEventListener("click", () => { page++; render(); });
+        drawerClose.addEventListener("click", () => drawer.hidden = true);
+        compareSel.addEventListener("change", () => loadCompare(compareSel.value));
+    }
+
+    function debounce(fn, ms) {
+        let t; return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms); };
+    }
+
+    // ── Load model ────────────────────────────────────────────────
+    async function loadModel(file) {
+        if (!file) { currentData = null; hideAll(); return; }
+        try {
+            const resp = await fetch(DATA_DIR + file);
+            currentData = await resp.json();
+        } catch (e) {
+            console.error("Failed to load model data", e);
+            return;
+        }
+
+        showModelInfo();
+        populateScriptFilter();
+        populateCompareSelect(file);
+        showChart();
+        page = 0;
+        applyFilters();
+        updateHash();
+
+        $("#model-info").hidden = false;
+        $("#chart-section").hidden = false;
+        $("#compare-section").hidden = false;
+        $("#table-section").hidden = false;
+    }
+
+    function hideAll() {
+        $("#model-info").hidden = true;
+        $("#chart-section").hidden = true;
+        $("#compare-section").hidden = true;
+        $("#table-section").hidden = true;
+    }
+
+    // ── Model info ────────────────────────────────────────────────
+    function showModelInfo() {
+        const m = currentData.metadata;
+        const vs = m.verification_summary;
+        let html = "";
+        const items = [
+            ["Model", m.repo_id],
+            ["Architecture", m.architecture],
+            ["Vocab size", m.vocab_size.toLocaleString()],
+            ["Hidden dim", m.hidden_size],
+            ["Tied", m.tied ? "Yes" : "No"],
+            ["Indicator", m.indicator],
+        ];
+        if (vs) {
+            items.push(["Verified glitches", vs.confirmed_glitches + "/" + vs.total_verified]);
+        }
+        for (const [k, v] of items) {
+            html += '<div class="meta-item"><strong>' + esc(k) + "</strong>" + esc(String(v)) + "</div>";
+        }
+        $("#model-meta").innerHTML = html;
+    }
+
+    // ── Script filter ─────────────────────────────────────────────
+    function populateScriptFilter() {
+        const scripts = new Set();
+        for (const t of currentData.tokens) {
+            for (const s of (t.scripts || [])) scripts.add(s);
+        }
+        scriptFilt.innerHTML = '<option value="">All</option>';
+        for (const s of [...scripts].sort()) {
+            const opt = document.createElement("option");
+            opt.value = s; opt.textContent = s;
+            scriptFilt.appendChild(opt);
         }
     }
 
-    function showScriptChart(stats) {
-        const entries = Object.entries(stats).sort((a, b) => b[1].total - a[1].total);
-        const maxTotal = Math.max(...entries.map(e => e[1].total), 1);
-        chartContainer.innerHTML = entries.map(([name, s]) => {
-            const totalPct = (s.total / maxTotal * 100).toFixed(1);
-            const flaggedPct = (s.flagged / maxTotal * 100).toFixed(1);
-            return `<div class="bar-row">
-                <span class="bar-label" title="${esc(name)}">${esc(name)}</span>
-                <div class="bar-container">
-                    <div class="bar-total" style="width:${totalPct}%"></div>
-                    <div class="bar-flagged" style="width:${flaggedPct}%"></div>
-                </div>
-                <span class="bar-count">${s.total} / ${s.flagged}</span>
-            </div>`;
-        }).join("");
+    // ── Compare selector ──────────────────────────────────────────
+    function populateCompareSelect(currentFile) {
+        compareSel.innerHTML = '<option value="">-- select --</option>';
+        for (const m of index.models) {
+            if (m.file === currentFile) continue;
+            const opt = document.createElement("option");
+            opt.value = m.file;
+            opt.textContent = m.repo_id;
+            compareSel.appendChild(opt);
+        }
+        $("#compare-area").innerHTML = "";
     }
 
-    // Filtering and sorting
+    async function loadCompare(file) {
+        if (!file || !currentData) { $("#compare-area").innerHTML = ""; return; }
+        try {
+            const resp = await fetch(DATA_DIR + file);
+            compareData = await resp.json();
+        } catch (e) { return; }
+        showComparison();
+    }
+
+    function showComparison() {
+        if (!currentData || !compareData) return;
+        // Find tokens in both datasets by token_id
+        const map2 = new Map();
+        for (const t of compareData.tokens) map2.set(t.id, t);
+
+        const both = [];
+        for (const t of currentData.tokens) {
+            const t2 = map2.get(t.id);
+            if (t2) both.push({ id: t.id, decoded: t.decoded, score1: t.score, score2: t2.score, rank1: t.rank, rank2: t2.rank });
+        }
+        both.sort((a, b) => a.rank1 - b.rank1);
+
+        let html = "<p>" + both.length + " tokens appear in both top-2000 lists.</p>";
+        if (both.length > 0) {
+            html += "<table><thead><tr><th>ID</th><th>Token</th><th>Rank 1</th><th>Score 1</th><th>Rank 2</th><th>Score 2</th></tr></thead><tbody>";
+            for (const t of both.slice(0, 100)) {
+                html += "<tr><td>" + t.id + "</td><td class='tok-cell'>" + escTok(t.decoded) + "</td>"
+                    + "<td>" + t.rank1 + "</td><td>" + t.score1.toFixed(6) + "</td>"
+                    + "<td>" + t.rank2 + "</td><td>" + t.score2.toFixed(6) + "</td></tr>";
+            }
+            html += "</tbody></table>";
+            if (both.length > 100) html += "<p>Showing first 100 of " + both.length + ".</p>";
+        }
+        $("#compare-area").innerHTML = html;
+    }
+
+    // ── Chart ─────────────────────────────────────────────────────
+    function showChart() {
+        const stats = currentData.script_stats || {};
+        const entries = Object.entries(stats).sort((a, b) => b[1].total - a[1].total).slice(0, 20);
+        if (!entries.length) { $("#chart-section").hidden = true; return; }
+
+        const maxVal = Math.max(...entries.map(([, v]) => v.total));
+        let html = '<div class="chart-legend">'
+            + '<span class="leg-total">Total</span>'
+            + '<span class="leg-flagged">Flagged</span>'
+            + '<span class="leg-verified">Verified</span></div>';
+
+        for (const [script, v] of entries) {
+            const tw = (v.total / maxVal * 100).toFixed(1);
+            const fw = (v.flagged / maxVal * 100).toFixed(1);
+            const vw = ((v.verified_glitch || 0) / maxVal * 100).toFixed(1);
+            html += '<div class="chart-bar-group">'
+                + '<span class="chart-label" title="' + esc(script) + '">' + esc(script) + '</span>'
+                + '<div class="chart-bars">'
+                + '<div class="chart-bar total" style="width:' + tw + '%"></div>'
+                + '<div class="chart-bar flagged" style="width:' + fw + '%"></div>'
+                + '<div class="chart-bar verified" style="width:' + vw + '%"></div>'
+                + '</div>'
+                + '<span class="chart-count">' + v.total + '</span></div>';
+        }
+        $("#chart-area").innerHTML = html;
+    }
+
+    // ── Filter & sort ─────────────────────────────────────────────
     function applyFilters() {
         if (!currentData) return;
-        const search = searchInput.value.toLowerCase();
-        const script = scriptFilter.value;
-        const onlySpecial = flagSpecial.checked;
-        const onlyUnreachable = flagUnreachable.checked;
-        const onlyPartial = flagPartial.checked;
-        const onlyGlitch = flagGlitch.checked;
+        let tokens = currentData.tokens;
+        const q = searchIn.value.trim().toLowerCase();
+        const sc = scriptFilt.value;
 
-        filteredTokens = currentData.tokens.filter(t => {
-            if (search && !t.decoded.toLowerCase().includes(search)) return false;
-            if (script && !(t.unicode_scripts || []).includes(script)) return false;
-            if (onlySpecial && !t.is_special) return false;
-            if (onlyUnreachable && !t.is_unreachable) return false;
-            if (onlyPartial && !t.is_partial_utf8) return false;
-            if (onlyGlitch && !(t.verification && t.verification.is_glitch)) return false;
+        filtered = tokens.filter((t) => {
+            if (q) {
+                const idMatch = String(t.id) === q;
+                const textMatch = (t.decoded || "").toLowerCase().includes(q);
+                if (!idMatch && !textMatch) return false;
+            }
+            if (sc && !(t.scripts || []).includes(sc)) return false;
+            if (fSpecial.checked && !t.special) return false;
+            if (fUnreach.checked && !t.unreachable) return false;
+            if (fVerified.checked && !t.verified) return false;
             return true;
         });
 
-        sortTokens();
-        currentPage = 0;
-        renderTable();
-    }
-
-    function sortTokens() {
-        const mode = sortSelect.value;
-        filteredTokens.sort((a, b) => {
-            switch (mode) {
-                case "score-asc": return a.score - b.score;
-                case "score-desc": return b.score - a.score;
-                case "id-asc": return a.token_id - b.token_id;
-                case "id-desc": return b.token_id - a.token_id;
-                default: return a.rank - b.rank;
-            }
+        // Sort
+        const sort = sortSel.value;
+        filtered.sort((a, b) => {
+            if (sort === "rank-asc") return a.rank - b.rank;
+            if (sort === "score-asc") return a.score - b.score;
+            if (sort === "score-desc") return b.score - a.score;
+            if (sort === "id-asc") return a.id - b.id;
+            return 0;
         });
+
+        render();
+        updateHash();
     }
 
-    function renderTable() {
-        const start = currentPage * PAGE_SIZE;
-        const end = Math.min(start + PAGE_SIZE, filteredTokens.length);
-        const page = filteredTokens.slice(start, end);
-        const totalPages = Math.ceil(filteredTokens.length / PAGE_SIZE) || 1;
+    // ── Render table page ─────────────────────────────────────────
+    function render() {
+        const total = filtered.length;
+        const pages = Math.ceil(total / PAGE_SIZE) || 1;
+        if (page >= pages) page = pages - 1;
+        if (page < 0) page = 0;
 
-        resultCount.textContent = `(${filteredTokens.length} tokens)`;
-        pageInfo.textContent = `Page ${currentPage + 1} of ${totalPages}`;
-        prevBtn.disabled = currentPage === 0;
-        nextBtn.disabled = end >= filteredTokens.length;
+        const start = page * PAGE_SIZE;
+        const slice = filtered.slice(start, start + PAGE_SIZE);
 
-        tbody.innerHTML = page.map(t => {
+        countBadge.textContent = total.toLocaleString();
+        pageInfo.textContent = "Page " + (page + 1) + " of " + pages;
+        prevBtn.disabled = page === 0;
+        nextBtn.disabled = page >= pages - 1;
+
+        // Build rows
+        let html = "";
+        for (const t of slice) {
             const flags = [];
-            if (t.is_special) flags.push('<span class="flag-badge flag-special">special</span>');
-            if (t.is_unreachable) flags.push('<span class="flag-badge flag-unreachable">unreachable</span>');
-            if (t.is_partial_utf8) flags.push('<span class="flag-badge flag-partial">partial</span>');
+            if (t.special) flags.push('<span class="flag flag-special">special</span>');
+            if (t.unreachable) flags.push('<span class="flag flag-unreachable">unreachable</span>');
+            if (t.verified) flags.push('<span class="flag flag-verified">verified</span>');
 
-            let verif = "";
-            if (t.verification) {
-                if (t.verification.is_glitch) {
-                    verif = `<span class="flag-badge flag-glitch">GLITCH (${t.verification.max_prob.toFixed(4)})</span>`;
-                } else if (t.verification.max_prob >= 0) {
-                    verif = `<span class="flag-badge flag-ok">OK (${t.verification.max_prob.toFixed(4)})</span>`;
-                } else {
-                    verif = '<span class="flag-badge" style="background:#555">unverified</span>';
-                }
-            }
+            html += '<tr data-id="' + t.id + '">'
+                + "<td>" + t.rank + "</td>"
+                + "<td>" + t.id + "</td>"
+                + '<td class="tok-cell">' + escTok(t.decoded) + "</td>"
+                + "<td>" + t.score.toFixed(6) + "</td>"
+                + "<td>" + flags.join("") + "</td>"
+                + "<td>" + (t.scripts || []).join(", ") + "</td>"
+                + "</tr>";
+        }
+        tbody.innerHTML = html;
 
-            return `<tr>
-                <td>${t.rank}</td>
-                <td>${t.token_id}</td>
-                <td title="${esc(t.decoded)}">${esc(t.decoded)}</td>
-                <td>${t.score.toFixed(6)}</td>
-                <td>${flags.join("") || "-"}</td>
-                <td>${(t.unicode_scripts || []).join(", ") || "-"}</td>
-                <td>${verif || "-"}</td>
-            </tr>`;
-        }).join("");
+        // Row click -> drawer
+        for (const tr of tbody.querySelectorAll("tr")) {
+            tr.addEventListener("click", () => {
+                const id = parseInt(tr.dataset.id);
+                const tok = currentData.tokens.find((t) => t.id === id);
+                if (tok) showDrawer(tok);
+            });
+        }
     }
 
-    // Event listeners for filters
-    searchInput.addEventListener("input", applyFilters);
-    sortSelect.addEventListener("change", applyFilters);
-    scriptFilter.addEventListener("change", applyFilters);
-    flagSpecial.addEventListener("change", applyFilters);
-    flagUnreachable.addEventListener("change", applyFilters);
-    flagPartial.addEventListener("change", applyFilters);
-    flagGlitch.addEventListener("change", applyFilters);
-    prevBtn.addEventListener("click", () => { currentPage--; renderTable(); });
-    nextBtn.addEventListener("click", () => { currentPage++; renderTable(); });
+    // ── Token detail drawer ───────────────────────────────────────
+    function showDrawer(t) {
+        let html = "<h3>Token " + t.id + "</h3>";
+        html += '<div class="detail-row"><strong>Rank:</strong> ' + t.rank + "</div>";
+        html += '<div class="detail-row"><strong>Decoded:</strong> <code>' + escTok(t.decoded) + "</code></div>";
+        html += '<div class="detail-row"><strong>Hex bytes:</strong> ' + (t.hex || "—") + "</div>";
+        html += '<div class="detail-row"><strong>Score:</strong> ' + t.score.toFixed(8) + "</div>";
+        html += '<div class="detail-row"><strong>Scripts:</strong> ' + (t.scripts || []).join(", ") + "</div>";
 
-    // Comparison
-    compareBtn.addEventListener("click", function () {
-        const name2 = modelSelect2.value;
-        if (!name2 || !loadedModels[name2] || !currentData) return;
-        const data2 = loadedModels[name2];
+        const flags = [];
+        if (t.special) flags.push("special");
+        if (t.unreachable) flags.push("unreachable");
+        if (t.partial) flags.push("partial-utf8");
+        html += '<div class="detail-row"><strong>Flags:</strong> ' + (flags.join(", ") || "none") + "</div>";
 
-        // Find tokens flagged in both (top 2% by rank in both)
-        const cutoff1 = Math.ceil(currentData.tokens.length * 0.02);
-        const cutoff2 = Math.ceil(data2.tokens.length * 0.02);
-        const top1 = new Map(currentData.tokens.slice(0, cutoff1).map(t => [t.token_id, t]));
-        const top2 = new Map(data2.tokens.slice(0, cutoff2).map(t => [t.token_id, t]));
-
-        const common = [];
-        for (const [id, t1] of top1) {
-            if (top2.has(id)) {
-                common.push({ token_id: id, decoded: t1.decoded, score1: t1.score, score2: top2.get(id).score });
-            }
+        if (t.verified !== undefined) {
+            html += '<div class="detail-row"><strong>Verified:</strong> ' + (t.verified ? "GLITCH" : "not glitch") + "</div>";
+            html += '<div class="detail-row"><strong>Max prob:</strong> ' + (t.max_prob !== undefined ? t.max_prob.toFixed(8) : "—") + "</div>";
+        } else {
+            html += '<div class="detail-row"><strong>Verified:</strong> unverified (indicator only)</div>';
         }
 
-        compareTbody.innerHTML = common.map(c =>
-            `<tr><td>${c.token_id}</td><td>${esc(c.decoded)}</td><td>${c.score1.toFixed(6)}</td><td>${c.score2.toFixed(6)}</td></tr>`
-        ).join("") || "<tr><td colspan='4'>No common tokens found</td></tr>";
+        drawerContent.innerHTML = html;
+        drawer.hidden = false;
+    }
 
-        comparisonSection.style.display = "block";
-    });
+    // ── URL hash state ────────────────────────────────────────────
+    function updateHash() {
+        if (!modelSel.value) { history.replaceState(null, "", location.pathname); return; }
+        const p = new URLSearchParams();
+        p.set("m", modelSel.value);
+        if (searchIn.value) p.set("q", searchIn.value);
+        if (sortSel.value !== "rank-asc") p.set("s", sortSel.value);
+        if (scriptFilt.value) p.set("sc", scriptFilt.value);
+        history.replaceState(null, "", "#" + p.toString());
+    }
 
-    function esc(str) {
+    // ── Escape helpers ────────────────────────────────────────────
+    function esc(s) {
         const d = document.createElement("div");
-        d.textContent = str || "";
+        d.textContent = s;
         return d.innerHTML;
     }
+
+    function escTok(s) {
+        // Escape HTML, then visualize whitespace/control chars
+        let out = "";
+        for (const ch of s) {
+            const cp = ch.codePointAt(0);
+            if (cp < 0x20 || cp === 0x7f) {
+                // Control char -> visible label
+                const names = { 0: "NUL", 7: "BEL", 8: "BS", 9: "TAB", 10: "LF", 13: "CR", 27: "ESC" };
+                const label = names[cp] || "x" + cp.toString(16).padStart(2, "0");
+                out += '<span style="opacity:.5;font-size:.7em">[' + label + ']</span>';
+            } else if (cp === 0x20) {
+                out += '<span style="opacity:.3">\u00b7</span>';
+            } else if (cp === 0xa0) {
+                out += '<span style="opacity:.3">NBSP</span>';
+            } else {
+                out += esc(ch);
+            }
+        }
+        return out || '<span style="opacity:.4">(empty)</span>';
+    }
+
+    // ── Boot ──────────────────────────────────────────────────────
+    init();
 })();

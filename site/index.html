@@ -3,114 +3,136 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Glitchfinder Explorer</title>
+    <title>Glitchfinder</title>
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
     <header>
-        <h1>Glitchfinder Explorer</h1>
-        <p class="subtitle">Under-trained token detection for open-weight LLMs</p>
+        <h1>Glitchfinder</h1>
+        <p class="hero">
+            Glitch tokens are vocabulary entries that a model barely saw during training.
+            Their embeddings are degenerate, and forcing the model to use them produces
+            bizarre output. This tool detects them from embedding matrices alone.
+        </p>
     </header>
 
+    <nav class="controls">
+        <div class="control-group">
+            <label for="model-select">Model</label>
+            <select id="model-select"></select>
+        </div>
+        <div class="control-group">
+            <label for="search-input">Search</label>
+            <input type="text" id="search-input" placeholder="token text or ID..." />
+        </div>
+        <div class="control-group">
+            <label for="sort-select">Sort</label>
+            <select id="sort-select">
+                <option value="rank-asc">Rank (most suspicious)</option>
+                <option value="score-asc">Score (ascending)</option>
+                <option value="score-desc">Score (descending)</option>
+                <option value="id-asc">Token ID</option>
+            </select>
+        </div>
+        <div class="control-group">
+            <label for="script-filter">Script</label>
+            <select id="script-filter">
+                <option value="">All</option>
+            </select>
+        </div>
+        <div class="control-group filters">
+            <label>Flags</label>
+            <div class="checkbox-row">
+                <label><input type="checkbox" id="f-special"> Special</label>
+                <label><input type="checkbox" id="f-unreachable"> Unreachable</label>
+                <label><input type="checkbox" id="f-verified"> Verified only</label>
+            </div>
+        </div>
+    </nav>
+
     <main>
-        <section class="controls">
-            <div class="control-row">
-                <label for="model-select">Model:</label>
-                <select id="model-select">
-                    <option value="">-- Load a JSON file --</option>
-                </select>
-                <input type="file" id="file-input" accept=".json" />
-                <button id="load-btn">Load File</button>
-            </div>
-
-            <div class="control-row" id="compare-row" style="display:none;">
-                <label for="model-select-2">Compare with:</label>
-                <select id="model-select-2">
-                    <option value="">-- None --</option>
-                </select>
-                <button id="compare-btn">Compare</button>
-            </div>
-
-            <div class="control-row">
-                <label for="search-input">Search:</label>
-                <input type="text" id="search-input" placeholder="Filter by decoded string..." />
-
-                <label for="sort-select">Sort:</label>
-                <select id="sort-select">
-                    <option value="score-asc">Score (ascending)</option>
-                    <option value="score-desc">Score (descending)</option>
-                    <option value="id-asc">Token ID (ascending)</option>
-                    <option value="id-desc">Token ID (descending)</option>
-                </select>
-            </div>
-
-            <div class="control-row">
-                <label for="script-filter">Script:</label>
-                <select id="script-filter">
-                    <option value="">All scripts</option>
-                </select>
-
-                <label class="checkbox-label">
-                    <input type="checkbox" id="flag-special" /> Special
-                </label>
-                <label class="checkbox-label">
-                    <input type="checkbox" id="flag-unreachable" /> Unreachable
-                </label>
-                <label class="checkbox-label">
-                    <input type="checkbox" id="flag-partial" /> Partial UTF-8
-                </label>
-                <label class="checkbox-label">
-                    <input type="checkbox" id="flag-glitch" /> Verified Glitch Only
-                </label>
-            </div>
+        <section id="model-info" class="card" hidden>
+            <div id="model-meta"></div>
         </section>
 
-        <section id="metadata" class="metadata" style="display:none;">
-            <h2>Model Info</h2>
-            <div id="metadata-content"></div>
+        <section id="chart-section" class="card" hidden>
+            <h2>Flagged tokens by Unicode script</h2>
+            <div id="chart-area"></div>
         </section>
 
-        <section id="script-chart" style="display:none;">
-            <h2>Tokens by Unicode Script</h2>
-            <div id="chart-container"></div>
+        <section id="compare-section" class="card" hidden>
+            <h2>Model comparison</h2>
+            <div class="control-group">
+                <label for="compare-select">Compare with</label>
+                <select id="compare-select">
+                    <option value="">-- select --</option>
+                </select>
+            </div>
+            <div id="compare-area"></div>
         </section>
 
-        <section id="results" style="display:none;">
-            <h2>Tokens <span id="result-count"></span></h2>
-            <table id="token-table">
-                <thead>
-                    <tr>
-                        <th>Rank</th>
-                        <th>ID</th>
-                        <th>Decoded</th>
-                        <th>Score</th>
-                        <th>Flags</th>
-                        <th>Scripts</th>
-                        <th>Verified</th>
-                    </tr>
-                </thead>
-                <tbody id="token-tbody"></tbody>
-            </table>
+        <section id="table-section" class="card" hidden>
+            <h2>Tokens <span id="count-badge" class="badge"></span></h2>
+            <div id="table-viewport">
+                <table id="token-table">
+                    <thead>
+                        <tr>
+                            <th>Rank</th>
+                            <th>ID</th>
+                            <th>Token</th>
+                            <th>Score</th>
+                            <th>Flags</th>
+                            <th>Scripts</th>
+                        </tr>
+                    </thead>
+                    <tbody id="tbody"></tbody>
+                </table>
+            </div>
             <div class="pagination">
-                <button id="prev-btn" disabled>Previous</button>
+                <button id="prev-btn" disabled>&laquo; Prev</button>
                 <span id="page-info"></span>
-                <button id="next-btn" disabled>Next</button>
+                <button id="next-btn" disabled>Next &raquo;</button>
             </div>
         </section>
 
-        <section id="comparison" style="display:none;">
-            <h2>Comparison: Tokens Flagged in Both Models</h2>
-            <table id="compare-table">
-                <thead>
-                    <tr>
-                        <th>Token ID</th>
-                        <th>Decoded</th>
-                        <th>Score (Model 1)</th>
-                        <th>Score (Model 2)</th>
-                    </tr>
-                </thead>
-                <tbody id="compare-tbody"></tbody>
-            </table>
+        <div id="drawer" class="drawer" hidden>
+            <button id="drawer-close" class="drawer-close">&times;</button>
+            <div id="drawer-content"></div>
+        </div>
+
+        <section id="method-section" class="card method">
+            <h2>Method &amp; Limits</h2>
+            <p>
+                <strong>Tied models</strong> (shared input/output embeddings): we measure cosine
+                distance from a reference centroid of known-unused tokens. Tokens close to this
+                "garbage direction" are suspicious.
+            </p>
+            <p>
+                <strong>Untied models</strong>: weight decay pushes unused input embeddings toward
+                zero. We rank by L2 norm &mdash; lower norm = more suspicious.
+            </p>
+            <p>
+                <strong>Verification</strong>: for models &le;1B, we test candidates with 3 prompt
+                templates. If max probability &lt; 1% across all prompts, the token is confirmed
+                as a glitch. Larger models are indicator-only ("candidates, unverified").
+            </p>
+            <h3>Limits</h3>
+            <ul>
+                <li>Safetensors only. Models with only .bin weights are not supported.</li>
+                <li>CPU, 8 GB RAM. Very large embedding matrices may not fit.</li>
+                <li>Verification limited to &le;1B parameter models.</li>
+                <li>Indicators are heuristics, not guarantees. Low-norm tokens may be legitimate
+                    but rare. Cosine proximity to the garbage cluster may be coincidental.</li>
+                <li>3 prompt templates cannot cover all possible contexts where a token might
+                    be predictable.</li>
+            </ul>
+            <p class="credit">
+                Based on: Land &amp; Bartolo (2024),
+                <a href="https://arxiv.org/abs/2405.05417" target="_blank" rel="noopener">
+                "Fishing for Magikarp"</a> (arXiv 2405.05417).
+                Code: <a href="https://github.com/cohere-ai/magikarp" target="_blank" rel="noopener">
+                cohere-ai/magikarp</a>.
+            </p>
         </section>
     </main>
 
